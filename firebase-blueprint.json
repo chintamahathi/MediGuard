@@ -1,0 +1,81 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user of the system, either a Patient or a Caregiver.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["patient", "caregiver"] },
+        "patientId": { "type": "string", "description": "The ID of the patient being monitored (if role is caregiver)." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "role"]
+    },
+    "Medicine": {
+      "title": "Medicine",
+      "description": "Details of the medicine and its schedule.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "patientId": { "type": "string" },
+        "name": { "type": "string" },
+        "dosage": { "type": "string" },
+        "frequency": { "type": "string" },
+        "times": { "type": "array", "items": { "type": "string" }, "description": "Array of time strings (e.g., '08:00')" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "patientId", "name", "times"]
+    },
+    "IntakeLog": {
+      "title": "IntakeLog",
+      "description": "History of medicine intake.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "patientId": { "type": "string" },
+        "medicineId": { "type": "string" },
+        "medicineName": { "type": "string" },
+        "status": { "type": "string", "enum": ["taken", "skipped", "missed"] },
+        "scheduledTime": { "type": "string", "format": "date-time" },
+        "confirmedTime": { "type": "string", "format": "date-time" },
+        "method": { "type": "string", "enum": ["manual", "iot"] }
+      },
+      "required": ["id", "patientId", "medicineId", "status", "scheduledTime"]
+    },
+    "DeviceStatus": {
+      "title": "DeviceStatus",
+      "description": "Real-time status synced with IoT hardware.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "isBoxOpen": { "type": "boolean" },
+        "lastWeight": { "type": "number" },
+        "lastHeartbeat": { "type": "string", "format": "date-time" },
+        "batteryLevel": { "type": "number" },
+        "isFalling": { "type": "boolean" }
+      },
+      "required": ["patientId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Stores user profiles."
+    },
+    "/medicines/{medicineId}": {
+      "schema": "Medicine",
+      "description": "Stores medicine schedules."
+    },
+    "/logs/{logId}": {
+      "schema": "IntakeLog",
+      "description": "Stores medicine intake history."
+    },
+    "/deviceStatus/{patientId}": {
+      "schema": "DeviceStatus",
+      "description": "Stores real-time IoT device state."
+    }
+  }
+}

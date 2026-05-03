@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all (Safety Net)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Secure Role Lookup
+    function getUserRole(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.get('role', 'unknown');
+    }
+
+    function getPatientId(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.get('patientId', null);
+    }
+
+    function isCaregiverFor(patientId) {
+      return isSignedIn() && getPatientId(request.auth.uid) == patientId;
+    }
+
+    function canAccessPatient(patientId) {
+      return isOwner(patientId) || isCaregiverFor(patientId);
+    }
+
+    // Validation Blueprints
+    function isValidUser(data) {
+      return data.keys().hasAll(['userId', 'email', 'role']) &&
+             data.userId == request.auth.uid &&
+             data.email is string && data.email.size() < 256 &&
+             data.role in ['patient', 'caregiver'] &&
+             (data.role == 'caregiver' ? data.keys().hasAll(['patientId']) : true);
+    }
+
+    function isValidMedicine(data) {
+      return data.keys().hasAll(['id', 'patientId', 'name', 'times']) &&
+             isValidId(data.id) &&
+             isValidId(data.patientId) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.times is list && data.times.size() > 0 && data.times.size() <= 12 &&
+             data.patientId == (isOwner(data.patientId) ? request.auth.uid : data.patientId);
+    }
+
+    function isValidLog(data) {
+      return data.keys().hasAll(['id', 'patientId', 'medicineId', 'status', 'scheduledTime']) &&
+             isValidId(data.id) &&
+             data.status in ['taken', 'skipped', 'missed', 'pending'] &&
+             (data.scheduledTime is timestamp || data.scheduledTime is string) &&
+             data.patientId == (isOwner(data.patientId) ? request.auth.uid : data.patientId);
+    }
+
+    // Collection: Users
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      // Pillar 8: Secure list queries with resource.data check
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.patientId == request.auth.uid);
+      allow create: if isSignedIn() && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && 
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'patientId', 'role']);
+    }
+
+    // Collection: Medicines
+    match /medicines/{medicineId} {
+      // Pillar 8: List enforcement
+      allow list: if isSignedIn() && (resource.data.patientId == request.auth.uid || isCaregiverFor(resource.data.patientId));
+      allow get: if isSignedIn() && canAccessPatient(resource.data.patientId);
+      allow create: if isSignedIn() && canAccessPatient(request.resource.data.patientId) && isValidMedicine(request.resource.data);
+      allow update: if isSignedIn() && canAccessPatient(resource.data.patientId) && isValidMedicine(request.resource.data);
+      allow delete: if isSignedIn() && canAccessPatient(resource.data.patientId);
+    }
+
+    // Collection: Logs
+    match /logs/{logId} {
+      // Pillar 8: List enforcement
+      allow list: if isSignedIn() && (resource.data.patientId == request.auth.uid || isCaregiverFor(resource.data.patientId));
+      allow get: if isSignedIn() && canAccessPatient(resource.data.patientId);
+      allow create: if isSignedIn() && canAccessPatient(request.resource.data.patientId) && isValidLog(request.resource.data);
+      allow update: if isSignedIn() && canAccessPatient(resource.data.patientId) && isValidLog(request.resource.data);
+    }
+
+    // Collection: DeviceStatus
+    match /deviceStatus/{patientId} {
+      allow read: if isSignedIn() && isValidId(patientId) && canAccessPatient(patientId);
+      allow write: if isSignedIn() && isValidId(patientId) && canAccessPatient(patientId);
+    }
+  }
+}
