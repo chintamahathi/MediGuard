@@ -45,6 +45,14 @@ export interface DeviceStatus {
   isFalling: boolean;
 }
 
+export interface NotificationItem {
+  id: string;
+  patientId?: string;
+  type: string;
+  message: string;
+  timestamp: string;
+}
+
 export interface AppState {
   user: UserProfile | null;
   medicines: Medicine[];

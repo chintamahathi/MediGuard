@@ -7,7 +7,6 @@ import {
   collection, 
   query, 
   where, 
-  orderBy, 
   setDoc,
   addDoc,
   deleteDoc,
@@ -25,7 +24,8 @@ import {
   UserProfile, 
   Medicine, 
   IntakeLog, 
-  DeviceStatus 
+  DeviceStatus,
+  NotificationItem 
 } from './types';
 import { 
   Bell, 
@@ -74,7 +74,7 @@ export default function App() {
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [logs, setLogs] = useState<IntakeLog[]>([]);
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatus | null>(null);
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [insights, setInsights] = useState<string>("");
   const [loadingInsights, setLoadingInsights] = useState(false);
 
@@ -111,6 +111,7 @@ export default function App() {
       setMedicines([]);
       setLogs([]);
       setDeviceStatus(null);
+      setNotifications([]);
       return;
     }
 
@@ -121,9 +122,12 @@ export default function App() {
     }, err => handleFirestoreError(err, OperationType.LIST, 'medicines'));
 
     // Logs
-    const qLogs = query(collection(db, 'logs'), where('patientId', '==', targetPatientId), orderBy('scheduledTime', 'desc'));
+    const qLogs = query(collection(db, 'logs'), where('patientId', '==', targetPatientId));
     const unsubscribeLogs = onSnapshot(qLogs, (snap) => {
-      setLogs(snap.docs.map(d => ({ ...d.data(), id: d.id } as IntakeLog)));
+      const nextLogs = snap.docs
+        .map(d => ({ ...d.data(), id: d.id } as IntakeLog))
+        .sort((a, b) => b.scheduledTime.localeCompare(a.scheduledTime));
+      setLogs(nextLogs);
     }, err => handleFirestoreError(err, OperationType.LIST, 'logs'));
 
     // Device Status
@@ -131,13 +135,18 @@ export default function App() {
     const unsubscribeDevice = onSnapshot(deviceRef, (snap) => {
       if (snap.exists()) {
         setDeviceStatus(snap.data() as DeviceStatus);
+      } else {
+        setDeviceStatus(null);
       }
     }, err => handleFirestoreError(err, OperationType.GET, `deviceStatus/${targetPatientId}`));
 
     // Notifications
-    const qNotifs = query(collection(db, 'notifications'), where('patientId', '==', targetPatientId), orderBy('timestamp', 'desc'));
+    const qNotifs = query(collection(db, 'notifications'), where('patientId', '==', targetPatientId));
     const unsubscribeNotifs = onSnapshot(qNotifs, (snap) => {
-      setNotifications(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+      const nextNotifications = snap.docs
+        .map(d => ({ ...d.data(), id: d.id } as NotificationItem))
+        .sort((a, b) => String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')));
+      setNotifications(nextNotifications);
     }, err => handleFirestoreError(err, OperationType.LIST, 'notifications'));
 
     return () => {
@@ -536,7 +545,7 @@ const MedicineCard: React.FC<MedicineCardProps> = ({ entry, logs, patientId, isN
   );
 };
 
-function Dashboard({ medicines, logs, user, deviceStatus, notifications }: { medicines: Medicine[], logs: IntakeLog[], user: UserProfile, deviceStatus: DeviceStatus | null, notifications: any[] }) {
+function Dashboard({ medicines, logs, user, deviceStatus, notifications }: { medicines: Medicine[], logs: IntakeLog[], user: UserProfile, deviceStatus: DeviceStatus | null, notifications: NotificationItem[] }) {
   const today = startOfToday();
   
   // Calculate upcoming meds
