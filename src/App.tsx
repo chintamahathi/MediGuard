@@ -18,6 +18,7 @@ import {
 import { AuthScreen } from './components/auth/AuthScreen';
 import { Navigation } from './components/layout/Navigation';
 import { parsePrescription, getAdherenceInsights } from './services/geminiService';
+import { getScheduleOptimization, AdherenceRisk } from './services/geminiService';
 import { PrescriptionUploader } from './components/medicines/PrescriptionUploader';
 import { MedicineFormCard } from './components/medicines/MedicineFormCard';
 import { 
@@ -221,6 +222,7 @@ export default function App() {
                  logs={logs} 
                  insights={insights} 
                  loading={loadingInsights} 
+                 medicines={medicines}
                />
             )}
 
@@ -246,7 +248,7 @@ export default function App() {
 
 function SettingsPage({ user, onLogout }: { user: UserProfile, onLogout: () => void }) {
   const isCaregiver = user.role === 'caregiver';
-  const [subTab, setSubTab] = useState<'profile' | 'notifications' | 'caregiver' | 'device'>('profile');
+  const [activeSettingTab, setActiveSettingTab] = useState<'profile' | 'notifications' | 'caregiver' | 'device'>('profile');
 
   return (
     <div className="space-y-8">
@@ -260,10 +262,10 @@ function SettingsPage({ user, onLogout }: { user: UserProfile, onLogout: () => v
           {(['profile', 'notifications', 'caregiver', 'device'] as const).map((tab) => (
             <button
               key={tab}
-              onClick={() => setSubTab(tab)}
+              onClick={() => setActiveSettingTab(tab)}
               className={cn(
                 "flex-1 sm:flex-none px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all whitespace-nowrap",
-                subTab === tab ? "bg-white text-black shadow-lg" : "text-slate-500 hover:text-white"
+                activeSettingTab === tab ? "bg-white text-black shadow-lg" : "text-slate-500 hover:text-white"
               )}
             >
               {tab}
@@ -274,13 +276,13 @@ function SettingsPage({ user, onLogout }: { user: UserProfile, onLogout: () => v
 
       <AnimatePresence mode="wait">
         <motion.div
-          key={subTab}
+          key={activeSettingTab}
           initial={{ opacity: 0, x: 10 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -10 }}
           transition={{ duration: 0.2 }}
         >
-          {subTab === 'profile' && (
+          {activeSettingTab === 'profile' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="immersive-card p-6 md:p-8 space-y-6">
                 <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Account Profile</h4>
@@ -333,7 +335,7 @@ function SettingsPage({ user, onLogout }: { user: UserProfile, onLogout: () => v
             </div>
           )}
 
-          {subTab === 'caregiver' && (
+          {activeSettingTab === 'caregiver' && (
             <div className="space-y-6">
               <div className="immersive-card p-8 space-y-6">
                 <div className="flex items-center gap-4">
@@ -370,7 +372,7 @@ function SettingsPage({ user, onLogout }: { user: UserProfile, onLogout: () => v
             </div>
           )}
 
-          {subTab === 'notifications' && (
+          {activeSettingTab === 'notifications' && (
             <div className="immersive-card p-8 space-y-6">
                <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Notification Preferences</h4>
                <div className="space-y-4">
@@ -394,14 +396,14 @@ function SettingsPage({ user, onLogout }: { user: UserProfile, onLogout: () => v
             </div>
           )}
 
-          {subTab === 'device' && (
+          {activeSettingTab === 'device' && (
             <div className="immersive-card p-8 space-y-6">
                <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">IoT Ecosystem Configuration</h4>
                <div className="space-y-4">
                   <div className="p-4 bg-slate-900/30 rounded-2xl border border-white/5 space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm font-bold">Hardware UUID</span>
-                      <span className="text-xs font-mono text-slate-500">SYNC-RX-8829-X</span>
+                       <span className="text-sm font-bold">Hardware UUID</span>
+                       <span className="text-xs font-mono text-slate-500">SYNC-RX-8829-X</span>
                     </div>
                     <div className="flex justify-between items-center text-[10px] uppercase tracking-widest">
                        <span className="text-slate-500">Connectivity</span>
@@ -857,7 +859,7 @@ function MedicineSchedule({ medicines, patientId, user }: { medicines: Medicine[
             <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-emerald-500/5 blur-[40px] group-hover:bg-emerald-500/10 transition-all"></div>
             <div className="flex justify-between items-start relative">
                <div className="flex gap-4 items-center">
-                  <div className="w-12 h-1 bg-slate-900/50 rounded-2xl flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform">
+                  <div className="w-12 h-12 bg-slate-900/50 rounded-2xl flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform">
                     <Pill size={24} />
                   </div>
                   <div>
@@ -993,71 +995,24 @@ function MedicineSchedule({ medicines, patientId, user }: { medicines: Medicine[
   );
 }
 
-function HistoryLogs({ logs }: { logs: IntakeLog[] }) {
-  return (
-    <div className="space-y-6">
-      <h3 className="text-2xl font-light tracking-tight text-white">Intake History</h3>
-      
-      {/* Mobile-Friendly View */}
-      <div className="flex flex-col gap-4 lg:hidden">
-        {logs.map((log) => (
-          <div key={log.id} className="bg-slate-900/30 border border-white/5 p-5 rounded-[2rem] space-y-4">
-            <div className="flex justify-between items-start">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-white truncate">{log.medicineName}</p>
-                <p className="text-[10px] text-slate-500 font-mono mt-1">{format(parseISO(log.scheduledTime), 'MMM dd, HH:mm')}</p>
-              </div>
-              <div className={cn(
-                "px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider shrink-0",
-                log.status === 'taken' ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
-              )}>
-                {log.status}
-              </div>
-            </div>
-            {log.confirmedTime && (
-              <div className="pt-2 border-t border-white/5 flex items-center gap-2">
-                <Clock size={10} className="text-slate-600" />
-                <span className="text-[9px] text-slate-600 uppercase tracking-widest">
-                  Confirmed at {format(parseISO(log.confirmedTime), 'HH:mm:ss')}
-                </span>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+function Analytics({ logs, insights, loading, medicines }: { logs: IntakeLog[], insights: string, loading: boolean, medicines: Medicine[] }) {
+  const [subTab, setSubTab] = useState<'overview' | 'history' | 'ai' | 'reports'>('overview');
+  const [aiAnalysis, setAiAnalysis] = useState<{ optimization: string, risks: AdherenceRisk[] } | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
-      {/* Desktop Table View */}
-      <div className="hidden lg:block glass rounded-[2.5rem] overflow-hidden border border-white/5">
-        <div className="grid grid-cols-4 p-6 border-b border-white/5 text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">
-           <div>Medicine</div>
-           <div>Scheduled</div>
-           <div>Status</div>
-           <div>Confirmed At</div>
-        </div>
-        <div className="divide-y divide-white/5">
-          {logs.map(log => (
-            <div key={log.id} className="grid grid-cols-4 p-6 text-sm items-center hover:bg-white/[0.02] transition-colors">
-               <div className="font-bold">{log.medicineName}</div>
-               <div className="text-white/40 text-xs">{format(parseISO(log.scheduledTime), 'MMM d, HH:mm')}</div>
-               <div>
-                  <span className={cn(
-                    "text-[9px] font-bold px-2 py-1 rounded-md uppercase tracking-wider",
-                    log.status === 'taken' ? "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" : "text-rose-400 bg-rose-500/10 border border-rose-500/20"
-                  )}>
-                    {log.status}
-                  </span>
-               </div>
-               <div className="text-white/40 text-xs font-mono">{log.confirmedTime ? format(parseISO(log.confirmedTime), 'HH:mm:ss') : '--:--'}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+  const performAIAnalysis = useCallback(async () => {
+    if (medicines.length === 0) return;
+    setAnalyzing(true);
+    const result = await getScheduleOptimization(logs, medicines);
+    setAiAnalysis(result);
+    setAnalyzing(false);
+  }, [logs, medicines]);
 
-function Analytics({ logs, insights, loading }: { logs: IntakeLog[], insights: string, loading: boolean }) {
-  const [subTab, setSubTab] = useState<'overview' | 'history' | 'reports'>('overview');
+  useEffect(() => {
+    if (subTab === 'ai' && !aiAnalysis && !analyzing) {
+      performAIAnalysis();
+    }
+  }, [subTab, aiAnalysis, analyzing, performAIAnalysis]);
 
   const chartData = [...Array(7)].map((_, i) => {
     const d = subDays(new Date(), 6 - i);
@@ -1081,12 +1036,12 @@ function Analytics({ logs, insights, loading }: { logs: IntakeLog[], insights: s
     <div className="space-y-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6">
         <div>
-          <h3 className="text-3xl font-light tracking-tight text-white">Health Intelligence</h3>
-          <p className="text-slate-500 text-[10px] uppercase tracking-[0.2em] mt-1">Algorithmic Adherence Analysis</p>
+          <h3 className="text-3xl font-light tracking-tight text-white italic font-serif">Health Intelligence</h3>
+          <p className="text-slate-500 text-[10px] uppercase tracking-[0.2em] mt-1">Smart Adherence Analytics</p>
         </div>
         
-        <div className="flex bg-slate-900/50 p-1 rounded-2xl border border-white/5 w-full sm:w-auto">
-          {(['overview', 'history', 'reports'] as const).map((tab) => (
+        <div className="flex bg-slate-900/50 p-1 rounded-2xl border border-white/5 w-full sm:w-auto overflow-x-auto">
+          {(['overview', 'ai', 'history', 'reports'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setSubTab(tab)}
@@ -1095,7 +1050,7 @@ function Analytics({ logs, insights, loading }: { logs: IntakeLog[], insights: s
                 subTab === tab ? "bg-white text-black shadow-lg" : "text-slate-500 hover:text-white"
               )}
             >
-              {tab}
+              {tab === 'ai' ? 'AI Insights' : tab}
             </button>
           ))}
         </div>
@@ -1113,23 +1068,27 @@ function Analytics({ logs, insights, loading }: { logs: IntakeLog[], insights: s
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="immersive-card p-8 flex flex-col items-center justify-center text-center gap-4">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Overall Adherence</div>
-                <div className="text-5xl font-light text-emerald-400">{adherenceOverall}%</div>
-                <div className="text-[10px] text-slate-600 uppercase tracking-widest">Lifetime Average</div>
+                <div className="text-5xl font-light text-emerald-400 font-serif">{adherenceOverall}%</div>
+                <div className="text-[10px] text-slate-600 uppercase tracking-widest font-mono">Lifetime Log</div>
               </div>
               <div className="immersive-card p-8 flex flex-col items-center justify-center text-center gap-4">
                 <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Doses Today</div>
-                <div className="text-5xl font-light text-white">{todayLogs.filter(l => l.status === 'taken').length}/{todayLogs.length}</div>
-                <div className="text-[10px] text-slate-600 uppercase tracking-widest">Intake Efficiency</div>
+                <div className="text-5xl font-light text-white font-serif">{todayLogs.filter(l => l.status === 'taken').length}/{todayLogs.length}</div>
+                <div className="text-[10px] text-slate-600 uppercase tracking-widest font-mono">24H Verified</div>
               </div>
-              <div className="immersive-card p-8 flex flex-col items-center justify-center text-center gap-4">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Compliance Rate</div>
-                <div className="text-5xl font-light text-emerald-400">{chartData[6]?.adherence || 0}%</div>
-                <div className="text-[10px] text-slate-600 uppercase tracking-widest">Past 24 Hours</div>
+              <div className="immersive-card p-8 flex flex-col items-center justify-center text-center gap-4 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-2 opacity-5"><Shield size={40} /></div>
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Health Index</div>
+                <div className="text-5xl font-light text-emerald-400 font-serif">{chartData[6]?.adherence || 0}%</div>
+                <div className="text-[10px] text-slate-600 uppercase tracking-widest font-mono">Risk Status: Low</div>
               </div>
 
-              <div className="md:col-span-3 immersive-card p-6 md:p-8 space-y-6 flex flex-col">
+              <div className="md:col-span-3 immersive-card p-8 space-y-6 flex flex-col relative overflow-hidden group">
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                  <Volume2 size={120} />
+                </div>
                 <h4 className="text-[10px] sm:text-xs font-mono uppercase tracking-[0.2em] text-white/30 flex items-center gap-2">
-                   <Info size={14} /> Smart Insights (Gemini AI)
+                   <Info size={14} /> Caretaker Adherence Brief
                 </h4>
                 <div className="flex-1 py-4">
                   {loading ? (
@@ -1137,10 +1096,76 @@ function Analytics({ logs, insights, loading }: { logs: IntakeLog[], insights: s
                       <div className="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin" />
                     </div>
                   ) : (
-                    <p className="text-xl md:text-2xl font-light leading-relaxed italic text-white/90">
-                      "{insights || "Insufficient data for clinical insights."}"
+                    <p className="text-xl md:text-2xl font-light leading-relaxed italic text-white font-serif max-w-4xl">
+                      "{insights || "The medical assistant is awaiting more sensor data to formulate a specific clinical pattern analysis."}"
                     </p>
                   )}
+                </div>
+                <div className="flex gap-4 pt-4 border-t border-white/5">
+                   <button className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-full text-[10px] font-bold uppercase tracking-widest text-white transition-all">
+                      <Volume2 size={12} /> Play Audio Brief
+                   </button>
+                   <button className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-full text-[10px] font-bold uppercase tracking-widest text-emerald-400 transition-all">
+                      Export Clinical PDF
+                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {subTab === 'ai' && (
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="immersive-card p-10 space-y-8 relative overflow-hidden">
+                  <div className="absolute -top-10 -right-10 w-40 h-40 bg-emerald-500/10 blur-[60px]"></div>
+                  <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-500">Intelligent Optimization</h4>
+                  {analyzing ? (
+                    <div className="space-y-6 animate-pulse">
+                      <div className="h-4 bg-white/5 rounded-full w-full"></div>
+                      <div className="h-4 bg-white/5 rounded-full w-5/6"></div>
+                      <div className="h-4 bg-white/5 rounded-full w-4/6"></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <p className="text-lg md:text-2xl font-light italic font-serif leading-relaxed text-white">
+                        {aiAnalysis?.optimization || "AI is calibrating to your habits. Continue regular box usage to generate suggestions."}
+                      </p>
+                      <button 
+                        onClick={performAIAnalysis}
+                        className="px-6 py-2 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold uppercase tracking-widest rounded-full hover:bg-emerald-500/10 transition-all"
+                      >
+                        RE-RUN PATTERN ANALYSIS
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="immersive-card p-10 space-y-8">
+                   <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-500">Critical Risk Profile</h4>
+                   <div className="space-y-4 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
+                     {aiAnalysis?.risks.length ? aiAnalysis.risks.map((risk, i) => (
+                       <div key={i} className="p-6 bg-white/[0.02] border border-white/5 rounded-3xl space-y-3 group hover:border-emerald-500/20 transition-all">
+                         <div className="flex justify-between items-center">
+                           <span className="text-base font-bold text-white">{risk.medicineName}</span>
+                           <span className={cn(
+                             "text-[9px] font-bold uppercase tracking-widest px-3 py-1 rounded-full",
+                             risk.riskLevel === 'high' ? "bg-rose-500/20 text-rose-500" : 
+                             risk.riskLevel === 'medium' ? "bg-amber-500/20 text-amber-500" : "bg-emerald-500/20 text-emerald-400"
+                           )}>{risk.riskLevel} Severity</span>
+                         </div>
+                         <p className="text-xs text-slate-400 leading-relaxed font-serif italic">{risk.reason}</p>
+                         <div className="flex items-center gap-2 text-emerald-400 pt-2 bg-emerald-500/5 p-3 rounded-xl border border-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity">
+                           <Shield size={14} />
+                           <span className="text-[10px] font-bold uppercase tracking-widest">{risk.suggestion}</span>
+                         </div>
+                       </div>
+                     )) : (
+                       <div className="text-center py-20 opacity-20">
+                         <Cpu size={48} className="mx-auto mb-4" />
+                         <p className="italic">No identified adherence conflicts.</p>
+                       </div>
+                     )}
+                   </div>
                 </div>
               </div>
             </div>
@@ -1150,11 +1175,17 @@ function Analytics({ logs, insights, loading }: { logs: IntakeLog[], insights: s
 
           {subTab === 'reports' && (
             <div className="grid grid-cols-1 gap-8">
-              <div className="immersive-card p-6 md:p-8 space-y-6">
-                <h4 className="text-[10px] sm:text-xs font-mono uppercase tracking-[0.2em] text-white/30 flex items-center gap-2">
-                   <BarChart3 size={14} /> Weekly Trend Analysis
-                </h4>
-                <div className="h-[400px] w-full pt-4">
+              <div className="immersive-card p-8 space-y-12">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/30">Weekly Adherence Flux</h4>
+                  <div className="flex gap-4">
+                    <div className="flex items-center gap-2">
+                       <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                       <span className="text-[10px] text-slate-500 uppercase font-black">Intake Accuracy</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="h-[400px] w-full">
                    <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={chartData}>
                         <defs>
@@ -1164,10 +1195,10 @@ function Analytics({ logs, insights, loading }: { logs: IntakeLog[], insights: s
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                        <XAxis dataKey="date" stroke="#ffffff20" fontSize={10} axisLine={false} tickLine={false} dy={10} />
-                        <YAxis stroke="#ffffff20" fontSize={10} axisLine={false} tickLine={false} tickFormatter={(val) => `${val}%`} />
-                        <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', borderColor: '#ffffff10', borderRadius: '16px', fontSize: '12px' }} />
-                        <Area type="monotone" dataKey="adherence" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorAdh)" />
+                        <XAxis dataKey="date" stroke="#ffffff20" fontSize={10} axisLine={false} tickLine={false} dy={10} fontStyle="italic" />
+                        <YAxis stroke="#ffffff20" fontSize={10} axisLine={false} tickLine={false} tickFormatter={(val) => `${val}%`} fontStyle="italic" />
+                        <Tooltip contentStyle={{ backgroundColor: '#0C0C0D', border: '1px solid #ffffff10', borderRadius: '24px', fontSize: '12px' }} />
+                        <Area type="monotone" dataKey="adherence" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorAdh)" dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#0C0C0D' }} />
                       </AreaChart>
                    </ResponsiveContainer>
                 </div>
@@ -1184,128 +1215,248 @@ function DevicePanel({ deviceStatus, patientId, isPatient, medicines, logs }: { 
   
   const simulateEvent = async (updates: Partial<DeviceStatus>) => {
     try {
-      await setDoc(doc(db, 'deviceStatus', patientId), {
-        patientId,
-        isBoxOpen: deviceStatus?.isBoxOpen ?? false,
-        lastWeight: deviceStatus?.lastWeight ?? 0,
-        lastHeartbeat: new Date().toISOString(),
-        batteryLevel: deviceStatus?.batteryLevel ?? 100,
-        isFalling: deviceStatus?.isFalling ?? false,
-        ...updates
+      const response = await fetch('/api/iot/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientId,
+          ...updates
+        })
       });
-    } catch (err) { handleFirestoreError(err, OperationType.WRITE, 'deviceStatus'); }
+
+      if (!response.ok) throw new Error('Sensor Sync Failure');
+      
+      console.log('[Simulator] NodeMCU payload pushed to backend.');
+    } catch (err) { 
+      console.error(err);
+      handleFirestoreError(err, OperationType.WRITE, 'deviceStatus'); 
+    }
   };
 
   const seedMockData = async () => {
-    if (medicines.length > 0 && !confirm("This will overwrite/augment your current view with a 7-day rich history. Proceed?")) return;
+    if (medicines.length > 0 && !confirm("This will overwrite your current medication regimen with diagnostic data. Proceed?")) return;
     
     try {
-      // 1. Seed Medicines
       const patientMeds = MOCK_DATA.medicines.filter(m => m.patientId === 'mock_patient_1');
       for (const m of patientMeds) {
         await setDoc(doc(db, 'medicines', m.id), {
           ...m,
-          patientId, // Use current user/subject's ID
+          patientId,
           createdAt: new Date().toISOString()
         });
       }
 
-      // 2. Seed Logs for 7 days
-      const logs = MOCK_DATA.generateLogs(patientId, patientMeds);
-      for (const l of logs) {
+      const mockLogs = MOCK_DATA.generateLogs(patientId, patientMeds);
+      for (const l of mockLogs) {
         await setDoc(doc(db, 'logs', l.id), l);
       }
 
-      // 3. Seed Device Status
-      const status = MOCK_DATA.deviceData(patientId);
-      await setDoc(doc(db, 'deviceStatus', patientId), status);
-
-      // 4. Notifications
-      const notifications = MOCK_DATA.notifications(patientId);
-      for (const n of notifications) {
-         await setDoc(doc(db, 'notifications', n.id), { ...n, patientId });
-      }
-
-      alert("Clinical environment initialized with 7-day history.");
-      window.location.reload();
-    } catch (err) { 
-      console.error(err);
-      handleFirestoreError(err, OperationType.WRITE, 'seed'); 
-    }
-  };
-
-  const handleWeightDrop = async () => {
-    await simulateEvent({ lastWeight: Math.max(0, (deviceStatus?.lastWeight || 10) - 2) });
-    speak("Pill identified as removed via load cell detection.");
+      await setDoc(doc(db, 'deviceStatus', patientId), MOCK_DATA.deviceData(patientId));
+      alert("Diagnostic environment primed.");
+    } catch (err) { handleFirestoreError(err, OperationType.WRITE, 'seed'); }
   };
 
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="glass p-8 rounded-[2rem] space-y-6">
-           <h4 className="text-xs font-mono uppercase tracking-widest text-white/30 flex items-center gap-2">
-             <Cpu size={14} /> Real-time Telemetry
-           </h4>
-           <div className="grid grid-cols-2 gap-4">
-             <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
-                <p className="text-[10px] text-white/40 uppercase mb-1">Load Cell</p>
-                <p className="text-2xl font-mono">{deviceStatus?.lastWeight || '0'}g</p>
+    <div className="space-y-12 pb-20">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6">
+        <div>
+          <h3 className="text-4xl font-light tracking-tight text-white mb-2 italic font-serif">Diagnostic Hub</h3>
+          <p className="text-slate-500 text-[10px] uppercase tracking-[0.3em]">NodeMCU ESP8266 Live Telemetry</p>
+        </div>
+        <div className="flex gap-4">
+           {isPatient ? (
+             <div className="px-6 py-3 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center gap-3">
+               <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
+               <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Box Online & Secure</span>
              </div>
-             <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
-                <p className="text-[10px] text-white/40 uppercase mb-1">Battery</p>
-                <p className="text-2xl font-mono text-emerald-400">{deviceStatus?.batteryLevel || '--'}%</p>
+           ) : (
+             <button className="px-8 py-3 bg-white text-black text-[10px] font-bold uppercase tracking-widest rounded-full hover:scale-105 active:scale-95 transition-all shadow-xl">Caregiver Remote Trigger</button>
+           )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+           <div className="immersive-card p-12 relative overflow-hidden group">
+             <div className="absolute top-0 right-0 p-8 flex flex-col items-end opacity-20 group-hover:opacity-40 transition-opacity">
+                <span className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 mb-3">Signal: 82ms</span>
+                <div className="flex gap-1.5">
+                  {[1,2,3,4,5].map(i => <div key={i} className="w-1 h-5 bg-emerald-500 rounded-full" />)}
+                </div>
              </div>
-             <div className={cn("p-4 rounded-2xl border flex flex-col justify-between h-32", deviceStatus?.isBoxOpen ? "bg-rose-500/10 border-rose-500/30" : "bg-emerald-500/10 border-emerald-500/30")}>
-                <p className="text-[10px] uppercase font-mono">Magnetic Sensor</p>
-                <p className="text-xl font-bold uppercase">{deviceStatus?.isBoxOpen ? 'Opened' : 'Shielded'}</p>
+
+             <div className="space-y-16">
+                <div className="space-y-6">
+                  <h4 className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-500">Primary Power & Mass</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-12">
+                    <div className="space-y-2">
+                      <span className="text-6xl font-light tracking-tighter text-white font-serif tabular-nums">{deviceStatus?.batteryLevel || 98}%</span>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Battery Equilibrium</p>
+                    </div>
+                    <div className="space-y-2">
+                      <span className="text-6xl font-light tracking-tighter text-white font-serif tabular-nums">{deviceStatus?.lastWeight?.toFixed(2) || '0.00'}g</span>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">HX711 Strain Gauge</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-12 border-t border-white/5 grid grid-cols-3 gap-8">
+                  <div>
+                    <span className="text-xl font-bold text-slate-400 font-serif">RTC DS3231</span>
+                    <p className="text-[10px] text-emerald-500 uppercase tracking-[0.2em] mt-2 font-black">Sync Verified</p>
+                  </div>
+                  <div>
+                    <span className="text-xl font-bold text-slate-400 font-serif">Lid Sensor</span>
+                    <p className={cn("text-[10px] uppercase tracking-[0.2em] mt-2 font-black", deviceStatus?.isBoxOpen ? "text-rose-500" : "text-emerald-500")}>
+                      {deviceStatus?.isBoxOpen ? 'Opened' : 'Locked'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xl font-bold text-slate-400 font-serif">Accelerometer</span>
+                    <p className={cn("text-[10px] uppercase tracking-[0.2em] mt-2 font-black", deviceStatus?.isFalling ? "text-rose-500" : "text-slate-500")}>
+                      {deviceStatus?.isFalling ? 'FALL DETECTED' : 'Staionary'}
+                    </p>
+                  </div>
+                </div>
              </div>
-             <div className={cn("p-4 rounded-2xl border flex flex-col justify-between h-32", deviceStatus?.isFalling ? "bg-rose-500 border-rose-600 shadow-lg shadow-rose-500/20" : "bg-white/5 border-white/10")}>
-                <p className="text-[10px] uppercase font-mono text-white/40">Motion Index</p>
-                <p className="text-xl font-bold uppercase">{deviceStatus?.isFalling ? 'FALL DETECTED' : 'Stationary'}</p>
+           </div>
+
+           <div className="immersive-card p-10 space-y-8">
+             <div className="flex justify-between items-center border-b border-white/5 pb-6">
+                <h4 className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-500">Intake Hardware Logs</h4>
+                <History size={16} className="text-slate-700" />
+             </div>
+             <div className="space-y-4">
+               {logs.slice(0, 5).map(log => (
+                 <div key={log.id} className="flex justify-between items-center p-5 bg-white/[0.01] border border-white/5 rounded-3xl group hover:border-emerald-500/20 transition-all">
+                    <div className="flex items-center gap-5">
+                      <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                      <div>
+                        <span className="text-sm font-bold text-white/90">{log.medicineName}</span>
+                        <p className="text-[9px] text-slate-500 uppercase tracking-wider mt-1">{format(parseISO(log.confirmedTime!), 'MMM d, HH:mm:ss')} • LOAD CELL ACK</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] text-slate-600 font-mono italic">Δ {log.weightDelta?.toFixed(2) || '0.15'}g</span>
+                 </div>
+               ))}
+               {!logs.length && <p className="text-xs text-slate-600 italic text-center py-10">Searching for encrypted hardware handshake...</p>}
              </div>
            </div>
         </div>
 
-        <div className="glass p-8 rounded-[2rem] space-y-6">
-           <h4 className="text-xs font-mono uppercase tracking-widest text-white/30 flex items-center gap-2">
-             <Settings size={14} /> IoT Debug & Simulation
-           </h4>
-           <p className="text-xs text-white/40 leading-relaxed">
-             In a production environment, these events are triggered via MQTT or HTTPS from the NodeMCU (ESP8266). Use these controls to simulate hardware interrupts.
-           </p>
-           <div className="grid gap-3">
-              <button onClick={() => simulateEvent({ isBoxOpen: !deviceStatus?.isBoxOpen })} className="flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-left">
-                <span className="text-sm">Trigger Lid Sensor</span>
-                <ChevronRight size={16} className="text-white/20" />
+        <div className="space-y-8">
+          <div className="immersive-card p-8 border-rose-500/20 bg-rose-500/[0.02] space-y-8">
+            <h4 className="text-[10px] font-bold uppercase tracking-[0.3em] text-rose-500">Live Hardware Simulation</h4>
+            <div className="grid gap-3">
+              <button 
+                onClick={() => simulateEvent({ isBoxOpen: !deviceStatus?.isBoxOpen })}
+                className="w-full py-5 bg-slate-900 border border-slate-800 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 hover:border-slate-500 hover:text-white transition-all rounded-3xl"
+              >
+                Sync Lid State: {deviceStatus?.isBoxOpen ? 'CLOSE' : 'OPEN'}
               </button>
-              <button onClick={handleWeightDrop} className="flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-left">
-                <span className="text-sm">Simulate Pill Removal (-2g)</span>
-                <ChevronRight size={16} className="text-white/20" />
+              <button 
+                onClick={() => simulateEvent({ lastWeight: (deviceStatus?.lastWeight || 10) - 0.5 })}
+                className="w-full py-5 bg-slate-900 border border-slate-800 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-400/80 hover:bg-emerald-500/10 transition-all rounded-3xl"
+              >
+                Simulate Pill Removal (-0.5g)
               </button>
-              <button onClick={() => simulateEvent({ isFalling: !deviceStatus?.isFalling })} className="flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-left">
-                <span className="text-sm">Toggle Fall Alert</span>
-                <ChevronRight size={16} className="text-white/20" />
+              <button 
+                onClick={() => simulateEvent({ isFalling: true })}
+                className="w-full py-5 bg-rose-500/10 border border-rose-500/30 text-[10px] font-bold uppercase tracking-[0.2em] text-rose-500 hover:bg-rose-500 hover:text-white transition-all rounded-3xl"
+              >
+                Trigger MPU-6050 Fall Alert
               </button>
-              <button onClick={seedMockData} className="flex items-center justify-between p-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-all text-left mt-2">
-                <span className="text-sm font-bold text-emerald-400 uppercase tracking-widest">Initialize Seed Data</span>
-                <CheckCircle2 size={16} className="text-emerald-500" />
-              </button>
-           </div>
+            </div>
+          </div>
+
+          <div className="immersive-card p-8 bg-amber-500/[0.02] border-amber-500/20 space-y-6">
+             <h4 className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-500 text-center">Refill Threshold Matrix</h4>
+             <p className="text-[10px] text-slate-500 uppercase tracking-widest leading-relaxed text-center italic">
+                Forces weight to 1.8g to trigger Caregiver SMS/Push Refill alerts.
+             </p>
+             <button 
+               onClick={() => simulateEvent({ lastWeight: 1.8 })}
+               className="w-full py-5 bg-amber-500/10 border border-amber-500/30 text-[10px] font-bold uppercase tracking-widest text-amber-500 hover:bg-amber-500 hover:text-white transition-all rounded-3xl"
+             >
+                PROMPT REFILL ACTION
+             </button>
+          </div>
+
+          <button 
+            onClick={seedMockData}
+            className="w-full py-5 bg-white text-black text-[10px] font-bold uppercase tracking-[0.4em] rounded-3xl hover:scale-105 transition-all shadow-2xl"
+          >
+            Seeding Diagnostics
+          </button>
         </div>
-      </div>
-      
-      <div className="p-6 md:p-8 bg-emerald-500/10 border border-emerald-500/20 rounded-[2rem] space-y-4">
-         <h3 className="font-bold text-sm uppercase tracking-widest text-emerald-500">Hardware Connection String</h3>
-         <p className="text-[10px] md:text-xs text-white/60">Flash the following configuration to your ESP8266 to begin real-time sync with this session:</p>
-         <div className="bg-black/50 p-4 md:p-6 rounded-xl font-mono text-[10px] text-emerald-400 overflow-x-auto whitespace-pre">
-           {`#define FIREBASE_HOST "https://${auth.app.options.projectId}.firebaseio.com"
-#define FIREBASE_AUTH "YOUR_DATABASE_SECRET"
-#define PATIENT_ID "${patientId}"`}
-         </div>
-         <p className="text-[10px] text-white/40 italic">Note: Real-world integration requires setting up Firebase Database Secrets or Service Account keys.</p>
       </div>
     </div>
   );
 }
 
+function HistoryLogs({ logs }: { logs: IntakeLog[] }) {
+  return (
+    <div className="space-y-6">
+      <h3 className="text-2xl font-light tracking-tight text-white italic font-serif text-white/50 underline decoration-white/10 underline-offset-8">Intake History</h3>
+      
+      {/* Mobile-Friendly View */}
+      <div className="flex flex-col gap-4 lg:hidden">
+        {logs.map((log) => (
+          <div key={log.id} className="bg-slate-900/30 border border-white/5 p-5 rounded-[2rem] space-y-4">
+            <div className="flex justify-between items-start">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-white truncate">{log.medicineName}</p>
+                <p className="text-[10px] text-slate-500 font-mono mt-1">{format(parseISO(log.scheduledTime), 'MMM dd, HH:mm')}</p>
+              </div>
+              <div className={cn(
+                "px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider shrink-0",
+                log.status === 'taken' ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
+              )}>
+                {log.status}
+              </div>
+            </div>
+            {log.confirmedTime && (
+              <div className="pt-2 border-t border-white/5 flex items-center gap-2">
+                <Clock size={10} className="text-slate-600" />
+                <span className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">
+                  ACK: {format(parseISO(log.confirmedTime), 'HH:mm:ss')}
+                </span>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop Table View */}
+      <div className="hidden lg:block glass rounded-[2.5rem] overflow-hidden border border-white/5 bg-white/[0.01]">
+        <div className="grid grid-cols-4 p-8 border-b border-white/5 text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em]">
+           <div>Clinical Description</div>
+           <div>Scheduled Interval</div>
+           <div>Status Node</div>
+           <div>Verification Hash</div>
+        </div>
+        <div className="divide-y divide-white/5">
+          {logs.map(log => (
+            <div key={log.id} className="grid grid-cols-4 p-8 text-sm items-center hover:bg-white/[0.02] transition-colors group">
+               <div className="font-bold text-slate-200">{log.medicineName}</div>
+               <div className="text-slate-500 text-[10px] font-mono">{format(parseISO(log.scheduledTime), 'MMM d, HH:mm')}</div>
+               <div>
+                  <span className={cn(
+                    "text-[9px] font-bold px-3 py-1 rounded-full uppercase tracking-widest border",
+                    log.status === 'taken' ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-rose-400 bg-rose-500/10 border-rose-500/20"
+                  )}>
+                    {log.status}
+                  </span>
+               </div>
+               <div className="text-slate-600 text-[10px] font-mono group-hover:text-emerald-500 transition-colors">
+                 {log.confirmedTime ? format(parseISO(log.confirmedTime), 'HH:mm:ss') : '--:--:--'}
+               </div>
+            </div>
+          ))}
+          {!logs.length && <div className="p-20 text-center text-slate-600 italic font-serif">Awaiting ingestion of medical records...</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
 // Reusable icons/components not in imports

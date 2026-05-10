@@ -34,6 +34,7 @@ export interface IntakeLog {
   scheduledTime: string; // ISO string
   confirmedTime?: string; // ISO string
   method?: 'manual' | 'iot';
+  weightDelta?: number;
 }
 
 export interface DeviceStatus {
@@ -43,6 +44,7 @@ export interface DeviceStatus {
   lastHeartbeat: string;
   batteryLevel: number;
   isFalling: boolean;
+  status?: 'connected' | 'disconnected' | 'maintenance';
 }
 
 export interface AppState {

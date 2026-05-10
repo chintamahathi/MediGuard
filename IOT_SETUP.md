@@ -1,6 +1,6 @@
 # NodeMCU (ESP8266) IoT Integration for MediGuard Smart
 
-To connect your hardware to this application, use the following logic in your Arduino IDE.
+To connect your hardware to this application, use the following logic in your Arduino IDE. This updated version uses the **MediGuard Smart Backend API** which handles auto-logging of medications and fall detection alerts.
 
 ## Hardware Components
 - NodeMCU (ESP8266)
@@ -9,18 +9,18 @@ To connect your hardware to this application, use the following logic in your Ar
 - Buzzer + LED (for alerts)
 - MPU6050 (Optional: for fall detection)
 
-## Arduino Sketch (Conceptual)
+## Arduino Sketch (REST API Method)
 
 ```cpp
 #include <ESP8266WiFi.h>
-#include <FirebaseESP8266.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
 #include "HX711.h"
 
 // Configuration
 #define WIFI_SSID "YOUR_WIFI_NAME"
 #define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
-#define FIREBASE_HOST "https://gen-lang-client-0074425365.firebaseio.com"
-#define FIREBASE_AUTH "YOUR_AUTH_KEY"
+#define API_URL "https://YOUR_APP_URL.run.app/api/iot/status"
 #define PATIENT_ID "PASTE_YOUR_UID_HERE"
 
 // Pins
@@ -30,7 +30,6 @@ const int REED_SWITCH_PIN = D5;
 const int BUZZER_PIN = D6;
 
 HX711 scale;
-FirebaseData firebaseData;
 
 void setup() {
   Serial.begin(115200);
@@ -39,30 +38,33 @@ void setup() {
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
   pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
-
-  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
 }
 
 void loop() {
-  bool isBoxOpen = digitalRead(REED_SWITCH_PIN) == HIGH;
-  float currentWeight = scale.get_units(5);
-  
-  // Sync to Firebase
-  FirebaseJson json;
-  json.set("isBoxOpen", isBoxOpen);
-  json.set("lastWeight", currentWeight);
-  json.set("lastHeartbeat", "SERVER_TIME"); // or use NTP client string
-  
-  if (Firebase.set(firebaseData, "/deviceStatus/" + String(PATIENT_ID), json)) {
-    Serial.println("Synced successfully");
+  if (WiFi.status() == WL_CONNECTED) {
+    bool isBoxOpen = digitalRead(REED_SWITCH_PIN) == HIGH;
+    float currentWeight = scale.get_units(5);
+    
+    WiFiClient client;
+    HTTPClient http;
+    http.begin(client, API_URL);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"patientId\":\"" + String(PATIENT_ID) + "\",\"isBoxOpen\":" + (isBoxOpen ? "true" : "false") + ",\"lastWeight\":" + String(currentWeight) + "}";
+    
+    int httpCode = http.POST(payload);
+    if (httpCode > 0) {
+      Serial.println("API Updated: " + String(httpCode));
+    }
+    http.end();
   }
-
-  // Handle local alerts if server triggers buzzer (optional check)
-  // if (Firebase.getBool(firebaseData, "/deviceStatus/" + String(PATIENT_ID) + "/shouldAlert")) { ... }
-
-  delay(2000); 
+  delay(5000); 
 }
 ```
 
 ## Security Note
-This example uses the legacy Firebase Database Secrets. For production, it is recommended to use the **Firebase Admin SDK** or **Authentication tokens**. Since this is a specialized environment, please refer to the `DevicePanel` in the web application for your specific `PATIENT_ID`.
+This API endpoint uses your unique `PATIENT_ID` for identification. The backend logic automatically detects if the medicine box was opened and cross-references it with your medication schedule to log doses automatically.
+
+## API Reference
+- **POST** `/api/iot/status`: Updates hardware sensors and executes backend automation logic (auto-logging doses, fall detection).
+- **GET** `/api/iot/config/:patientId`: Returns the current medication schedule for local hardware alerts.
