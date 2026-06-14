@@ -7,6 +7,7 @@ export interface UserProfile {
   role: UserRole;
   patientId?: string; // If role is caregiver, which patient are they watching?
   createdAt: string;
+  isDemo?: boolean;
 }
 
 export interface Medicine {

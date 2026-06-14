@@ -94,18 +94,31 @@ export default function App() {
           setAuthLoading(false);
         });
       } else {
-        setUser(null);
+        setUser(prev => {
+          if (prev?.isDemo) return prev;
+          return null;
+        });
         setAuthLoading(false);
-        setMedicines([]);
-        setLogs([]);
-        setDeviceStatus(null);
       }
     });
   }, []);
 
+  // Demo Mode State Initialization
+  useEffect(() => {
+    if (user?.isDemo) {
+      const targetPatientId = user.role === 'patient' ? user.userId : user.patientId || 'mock_patient_1';
+      const patientMeds = MOCK_DATA.medicines.filter(m => m.patientId === targetPatientId);
+      setMedicines(patientMeds);
+      setLogs(MOCK_DATA.generateLogs(targetPatientId, patientMeds));
+      setDeviceStatus(MOCK_DATA.deviceData(targetPatientId));
+      setNotifications(MOCK_DATA.notifications(targetPatientId));
+    }
+  }, [user]);
+
   // Data Fetching based on role
   useEffect(() => {
     if (!user) return;
+    if (user.isDemo) return;
 
     const targetPatientId = user.role === 'patient' ? user.userId : user.patientId;
     if (!targetPatientId) {
@@ -160,7 +173,129 @@ export default function App() {
     }
   }, [activeTab, logs, medicines]);
 
-  const handleLogout = () => signOut(auth);
+  const handleAddNotification = (notif: any) => {
+    setNotifications(prev => [notif, ...prev]);
+  };
+  
+  const handleAddMedicine = (newMed: Medicine) => {
+    setMedicines(prev => [...prev, newMed]);
+  };
+
+  const handleAddMedicinesBatch = (addedMeds: Medicine[]) => {
+    setMedicines(prev => [...prev, ...addedMeds]);
+  };
+
+  const handleUpdateMedicine = (updatedMed: Medicine) => {
+    setMedicines(prev => prev.map(m => m.id === updatedMed.id ? updatedMed : m));
+  };
+
+  const handleDeleteMedicine = (id: string) => {
+    setMedicines(prev => prev.filter(m => m.id !== id));
+  };
+
+  const handleLogUpdate = (newLog: IntakeLog) => {
+    setLogs(prev => {
+      const exists = prev.some(l => l.id === newLog.id);
+      if (exists) {
+        return prev.map(l => l.id === newLog.id ? newLog : l);
+      }
+      return [newLog, ...prev];
+    });
+  };
+
+  const handleSimulateEvent = (updates: Partial<DeviceStatus>) => {
+    setDeviceStatus(prev => {
+      const nextStatus = prev ? { ...prev, ...updates } : { ...updates } as DeviceStatus;
+      
+      if (updates.lastWeight !== undefined && updates.lastWeight < 2.0 && (prev?.lastWeight === undefined || prev.lastWeight >= 2.0)) {
+        const notifId = `refill-${user?.userId}-${Date.now()}`;
+        handleAddNotification({
+          id: notifId,
+          patientId: user?.userId || "",
+          type: 'warning',
+          message: "Medicine stock low (threshold < 2g). Refill required.",
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      if (updates.isBoxOpen === true && prev?.isBoxOpen === false) {
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+        const targetPatientId = user?.role === 'patient' ? user.userId : user?.patientId || "mock_patient_1";
+        
+        for (const med of medicines) {
+          for (const time of med.times) {
+            const scheduledTimeStr = `${todayStr}T${time}:00`;
+            const scheduledTime = new Date(scheduledTimeStr);
+            const diffMinutes = Math.abs(now.getTime() - scheduledTime.getTime()) / (1000 * 60);
+            
+            if (diffMinutes <= 120) {
+              const logId = `${med.id}-${todayStr}-${time.replace(':', '')}`;
+              const logExists = logs.some(l => l.id === logId && l.status === 'taken');
+              
+              if (!logExists) {
+                const newLog = {
+                  id: logId,
+                  patientId: targetPatientId,
+                  medicineId: med.id,
+                  medicineName: med.name,
+                  status: 'taken' as const,
+                  scheduledTime: scheduledTimeStr,
+                  confirmedTime: now.toISOString(),
+                  method: 'iot' as const,
+                  weightDelta: (prev?.lastWeight || 0) - (updates.lastWeight || 0)
+                };
+                handleLogUpdate(newLog);
+                handleAddNotification({
+                  id: `notif-${logId}`,
+                  patientId: targetPatientId,
+                  type: 'success',
+                  message: `Intake confirmed: ${med.name}.`,
+                  timestamp: now.toISOString()
+                });
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (updates.isFalling === true && prev?.isFalling !== true) {
+        const notifId = `emg-${user?.userId}-${Date.now()}`;
+        handleAddNotification({
+          id: notifId,
+          patientId: user?.userId || "",
+          type: 'error',
+          message: `URGENT: Fall detected! Emergency contact notified.`,
+          timestamp: new Date().toISOString(),
+          isEmergency: true
+        });
+      }
+
+      return nextStatus;
+    });
+  };
+
+  const handleSeedMockData = () => {
+    const targetPatientId = user?.role === 'patient' ? user.userId : user?.patientId || "mock_patient_1";
+    const patientMeds = MOCK_DATA.medicines.filter(m => m.patientId === 'mock_patient_1');
+    setMedicines(patientMeds);
+    setLogs(MOCK_DATA.generateLogs(targetPatientId, patientMeds));
+    setDeviceStatus(MOCK_DATA.deviceData(targetPatientId));
+    setNotifications(MOCK_DATA.notifications(targetPatientId));
+    alert("Diagnostic environment primed.");
+  };
+
+  const handleLogout = () => {
+    if (user?.isDemo) {
+      setUser(null);
+      setMedicines([]);
+      setLogs([]);
+      setDeviceStatus(null);
+      setNotifications([]);
+    }
+    signOut(auth);
+  };
 
   const badges = {
     dashboard: logs.filter(l => 
@@ -175,7 +310,16 @@ export default function App() {
     </div>
   );
 
-  if (!user) return <AuthScreen />;
+  if (!user) return <AuthScreen onDemoLogin={(role) => {
+    setUser({
+      userId: role === 'patient' ? 'mock_patient_1' : 'mock_caregiver_1',
+      name: role === 'patient' ? 'John Doe' : 'Sarah Wilson',
+      email: role === 'patient' ? 'john@example.com' : 'sarah@example.com',
+      role: role,
+      patientId: role === 'caregiver' ? 'mock_patient_1' : undefined,
+      isDemo: true
+    });
+  }} />;
 
   return (
     <div className="flex flex-col lg:flex-row h-screen overflow-hidden">
@@ -206,6 +350,7 @@ export default function App() {
                 user={user} 
                 deviceStatus={deviceStatus}
                 notifications={notifications}
+                onLogUpdate={handleLogUpdate}
               />
             )}
             
@@ -214,6 +359,11 @@ export default function App() {
                  medicines={medicines} 
                  patientId={user.role === 'patient' ? user.userId : user.patientId!}
                  user={user}
+                 onAddMedicine={handleAddMedicine}
+                 onUpdateMedicine={handleUpdateMedicine}
+                 onDeleteMedicine={handleDeleteMedicine}
+                 onAddMedicinesBatch={handleAddMedicinesBatch}
+                 onAddNotification={handleAddNotification}
                />
             )}
 
@@ -233,6 +383,9 @@ export default function App() {
                  isPatient={user.role === 'patient'}
                  medicines={medicines}
                  logs={logs}
+                 onSimulateEvent={handleSimulateEvent}
+                 onSeedMockData={handleSeedMockData}
+                 isDemo={user.isDemo}
                />
             )}
 
@@ -459,25 +612,34 @@ interface MedicineCardProps {
   logs: IntakeLog[];
   patientId: string;
   isNext?: boolean;
+  isDemo?: boolean;
+  onLogUpdate?: (log: IntakeLog) => void;
 }
 
-const MedicineCard: React.FC<MedicineCardProps> = ({ entry, logs, patientId, isNext }) => {
+const MedicineCard: React.FC<MedicineCardProps> = ({ entry, logs, patientId, isNext, isDemo, onLogUpdate }) => {
   const log = logs.find(l => l.medicineId === entry.med.id && isSameDay(parseISO(l.scheduledTime), startOfToday()));
   const isTaken = log?.status === 'taken';
   const isMissed = log?.status === 'missed';
 
   const markTaken = async () => {
     const logId = `${entry.med.id}-${format(new Date(), 'yyyy-MM-dd')}`;
+    const logData = {
+      id: logId,
+      patientId,
+      medicineId: entry.med.id,
+      medicineName: entry.med.name,
+      status: 'taken' as const,
+      scheduledTime: entry.fullTime,
+      confirmedTime: new Date().toISOString()
+    };
+
+    if (isDemo) {
+      if (onLogUpdate) onLogUpdate(logData);
+      return;
+    }
+
     try {
-      await setDoc(doc(db, 'logs', logId), {
-        id: logId,
-        patientId,
-        medicineId: entry.med.id,
-        medicineName: entry.med.name,
-        status: 'taken',
-        scheduledTime: entry.fullTime,
-        confirmedTime: new Date().toISOString()
-      });
+      await setDoc(doc(db, 'logs', logId), logData);
     } catch (err) { handleFirestoreError(err, OperationType.WRITE, 'logs'); }
   };
 
@@ -538,7 +700,21 @@ const MedicineCard: React.FC<MedicineCardProps> = ({ entry, logs, patientId, isN
   );
 };
 
-function Dashboard({ medicines, logs, user, deviceStatus, notifications }: { medicines: Medicine[], logs: IntakeLog[], user: UserProfile, deviceStatus: DeviceStatus | null, notifications: any[] }) {
+function Dashboard({ 
+  medicines, 
+  logs, 
+  user, 
+  deviceStatus, 
+  notifications,
+  onLogUpdate
+}: { 
+  medicines: Medicine[], 
+  logs: IntakeLog[], 
+  user: UserProfile, 
+  deviceStatus: DeviceStatus | null, 
+  notifications: any[],
+  onLogUpdate?: (log: IntakeLog) => void
+}) {
   const today = startOfToday();
   
   // Calculate upcoming meds
@@ -641,7 +817,7 @@ function Dashboard({ medicines, logs, user, deviceStatus, notifications }: { med
           {upcoming.length > 0 ? upcoming.map((u: any, i: number) => {
              const log = logs.find(l => l.medicineId === u.med.id && isSameDay(parseISO(l.scheduledTime), today));
              const isNext = !log && upcoming.findIndex(entry => !logs.find(l => l.medicineId === entry.med.id && isSameDay(parseISO(l.scheduledTime), today))) === i;
-             return <MedicineCard key={i} entry={u} logs={logs} patientId={user.role === 'patient' ? user.userId : user.patientId!} isNext={isNext} />;
+             return <MedicineCard key={i} entry={u} logs={logs} patientId={user.role === 'patient' ? user.userId : user.patientId!} isNext={isNext} isDemo={user.isDemo} onLogUpdate={onLogUpdate} />;
           }) : (
             <div className="p-20 text-center flex flex-col items-center gap-4 opacity-20 italic">
                <Pill size={48} />
@@ -654,7 +830,25 @@ function Dashboard({ medicines, logs, user, deviceStatus, notifications }: { med
   );
 }
 
-function MedicineSchedule({ medicines, patientId, user }: { medicines: Medicine[], patientId: string, user: UserProfile }) {
+function MedicineSchedule({ 
+  medicines, 
+  patientId, 
+  user,
+  onAddMedicine,
+  onUpdateMedicine,
+  onDeleteMedicine,
+  onAddMedicinesBatch,
+  onAddNotification
+}: { 
+  medicines: Medicine[], 
+  patientId: string, 
+  user: UserProfile,
+  onAddMedicine?: (med: Medicine) => void,
+  onUpdateMedicine?: (med: Medicine) => void,
+  onDeleteMedicine?: (id: string) => void,
+  onAddMedicinesBatch?: (meds: Medicine[]) => void,
+  onAddNotification?: (notif: any) => void
+}) {
   const [activeSubTab, setActiveSubTab] = useState<'list' | 'add' | 'scan'>('list');
   const [showAdd, setShowAdd] = useState(false);
   const [showScan, setShowScan] = useState(false);
@@ -667,38 +861,58 @@ function MedicineSchedule({ medicines, patientId, user }: { medicines: Medicine[
   const [times, setTimes] = useState<string[]>(['08:00']);
 
   const createNotification = async (type: string, message: string) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    const newNotif = {
+      id,
+      patientId,
+      type,
+      message,
+      timestamp: new Date().toISOString()
+    };
+
+    if (user.isDemo) {
+      if (onAddNotification) onAddNotification(newNotif);
+      return;
+    }
+
     try {
-      const id = Math.random().toString(36).substr(2, 9);
-      await setDoc(doc(db, 'notifications', id), {
-        id,
-        patientId,
-        type,
-        message,
-        timestamp: new Date().toISOString()
-      });
+      await setDoc(doc(db, 'notifications', id), newNotif);
     } catch (err) { console.error("Failed to notify:", err); }
   };
 
   const addMedicine = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    const id = Math.random().toString(36).substr(2, 9);
+    const audit = {
+      lastUpdatedBy: user.userId,
+      lastUpdatedByName: user.name,
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    const medData = {
+      id,
+      patientId,
+      name,
+      dosage,
+      times,
+      frequency: 'once daily',
+      createdAt: new Date().toISOString(),
+      ...audit
+    };
+
+    if (user.isDemo) {
+      if (onAddMedicine) onAddMedicine(medData);
+      if (user.role === 'caregiver') {
+        createNotification('info', `Caregiver added new medicine: ${name}`);
+      }
+      setShowAdd(false);
+      setName('');
+      setDosage('');
+      setTimes(['08:00']);
+      return;
+    }
+
     try {
-      const id = Math.random().toString(36).substr(2, 9);
-      const audit = {
-        lastUpdatedBy: user.userId,
-        lastUpdatedByName: user.name,
-        lastUpdatedAt: new Date().toISOString(),
-      };
-      
-      await setDoc(doc(db, 'medicines', id), {
-        id,
-        patientId,
-        name,
-        dosage,
-        times,
-        frequency: 'once daily',
-        createdAt: new Date().toISOString(),
-        ...audit
-      });
+      await setDoc(doc(db, 'medicines', id), medData);
 
       if (user.role === 'caregiver') {
         createNotification('info', `Caregiver added new medicine: ${name}`);
@@ -713,13 +927,26 @@ function MedicineSchedule({ medicines, patientId, user }: { medicines: Medicine[
 
   const updateMedicine = async (med: Partial<Medicine>) => {
     if (!med.id) return;
+    const audit = {
+      lastUpdatedBy: user.userId,
+      lastUpdatedByName: user.name,
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    const updatedMed = {
+      ...med,
+      ...audit
+    } as Medicine;
+
+    if (user.isDemo) {
+      if (onUpdateMedicine) onUpdateMedicine(updatedMed);
+      if (user.role === 'caregiver') {
+        createNotification('alert', `Caregiver updated prescription for ${med.name}`);
+      }
+      setEditingMed(null);
+      return;
+    }
+
     try {
-      const audit = {
-        lastUpdatedBy: user.userId,
-        lastUpdatedByName: user.name,
-        lastUpdatedAt: new Date().toISOString(),
-      };
-      
       await updateDoc(doc(db, 'medicines', med.id), {
         ...med,
         ...audit
@@ -747,6 +974,31 @@ function MedicineSchedule({ medicines, patientId, user }: { medicines: Medicine[
   };
 
   const saveExtracted = async () => {
+    if (user.isDemo) {
+      const addedMeds: Medicine[] = [];
+      for (const m of tempMedicines) {
+        if (!m.name) continue;
+        const id = Math.random().toString(36).substr(2, 9);
+        addedMeds.push({
+          ...m,
+          id,
+          patientId,
+          createdAt: new Date().toISOString(),
+          isVerified: true,
+          lastUpdatedBy: user.userId,
+          lastUpdatedByName: user.name,
+          lastUpdatedAt: new Date().toISOString(),
+        } as Medicine);
+      }
+      if (onAddMedicinesBatch) onAddMedicinesBatch(addedMeds);
+      if (user.role === 'caregiver') {
+        createNotification('info', `Caregiver verified and added ${tempMedicines.length} medicine(s) from prescription scan`);
+      }
+      setExtractMode(false);
+      setTempMedicines([]);
+      return;
+    }
+
     try {
       for (const m of tempMedicines) {
         if (!m.name) continue;
@@ -778,6 +1030,10 @@ function MedicineSchedule({ medicines, patientId, user }: { medicines: Medicine[
       return;
     }
     if (confirm("Remove this medicine from patient registry?")) {
+      if (user.isDemo) {
+        if (onDeleteMedicine) onDeleteMedicine(id);
+        return;
+      }
       await deleteDoc(doc(db, 'medicines', id));
     }
   };
@@ -1211,9 +1467,31 @@ function Analytics({ logs, insights, loading, medicines }: { logs: IntakeLog[], 
   );
 }
 
-function DevicePanel({ deviceStatus, patientId, isPatient, medicines, logs }: { deviceStatus: DeviceStatus | null, patientId: string, isPatient: boolean, medicines: Medicine[], logs: IntakeLog[] }) {
+function DevicePanel({ 
+  deviceStatus, 
+  patientId, 
+  isPatient, 
+  medicines, 
+  logs,
+  onSimulateEvent,
+  onSeedMockData,
+  isDemo
+}: { 
+  deviceStatus: DeviceStatus | null, 
+  patientId: string, 
+  isPatient: boolean, 
+  medicines: Medicine[], 
+  logs: IntakeLog[],
+  onSimulateEvent?: (updates: Partial<DeviceStatus>) => void,
+  onSeedMockData?: () => void,
+  isDemo?: boolean
+}) {
   
   const simulateEvent = async (updates: Partial<DeviceStatus>) => {
+    if (isDemo) {
+      if (onSimulateEvent) onSimulateEvent(updates);
+      return;
+    }
     try {
       const response = await fetch('/api/iot/status', {
         method: 'POST',
@@ -1236,6 +1514,10 @@ function DevicePanel({ deviceStatus, patientId, isPatient, medicines, logs }: { 
   const seedMockData = async () => {
     if (medicines.length > 0 && !confirm("This will overwrite your current medication regimen with diagnostic data. Proceed?")) return;
     
+    if (isDemo) {
+      if (onSeedMockData) onSeedMockData();
+      return;
+    }
     try {
       const patientMeds = MOCK_DATA.medicines.filter(m => m.patientId === 'mock_patient_1');
       for (const m of patientMeds) {
@@ -1327,7 +1609,7 @@ function DevicePanel({ deviceStatus, patientId, isPatient, medicines, logs }: { 
                 <History size={16} className="text-slate-700" />
              </div>
              <div className="space-y-4">
-               {logs.slice(0, 5).map(log => (
+               {logs.filter(l => l.status === 'taken' && l.confirmedTime).slice(0, 5).map(log => (
                  <div key={log.id} className="flex justify-between items-center p-5 bg-white/[0.01] border border-white/5 rounded-3xl group hover:border-emerald-500/20 transition-all">
                     <div className="flex items-center gap-5">
                       <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)]" />

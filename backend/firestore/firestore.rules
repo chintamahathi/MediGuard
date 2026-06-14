@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper: Verify sign-in state
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper: Verify owner of UID matches auth context
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Helper: Lookup caregiver's linked patient
+    function getLinkedPatientId(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.get('patientId', null);
+    }
+
+    // Helper: Verify if auth user is the registered caregiver for the target patient
+    function isCaregiverFor(patientId) {
+      return isSignedIn() && getLinkedPatientId(request.auth.uid) == patientId;
+    }
+
+    // Helper: Consolidated check for accessing patient resources
+    function canAccessPatient(patientId) {
+      return isOwner(patientId) || isCaregiverFor(patientId);
+    }
+
+    // Rules: Users Collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isOwner(userId);
+    }
+
+    // Rules: Devices Collection
+    match /devices/{deviceId} {
+      allow read, write: if isSignedIn() && (
+        (resource != null && canAccessPatient(resource.data.userId)) ||
+        (request.resource != null && canAccessPatient(request.resource.data.userId))
+      );
+    }
+
+    // Rules: Medicines Collection
+    match /medicines/{medicineId} {
+      allow read, write: if isSignedIn() && (
+        (resource != null && canAccessPatient(resource.data.userId)) ||
+        (request.resource != null && canAccessPatient(request.resource.data.userId))
+      );
+    }
+
+    // Rules: Medicine Logs Collection
+    match /medicine_logs/{logId} {
+      allow read, write: if isSignedIn() && (
+        (resource != null && canAccessPatient(resource.data.userId)) ||
+        (request.resource != null && canAccessPatient(request.resource.data.userId))
+      );
+    }
+
+    // Rules: Device Status Collection
+    match /device_status/{patientId} {
+      allow read, write: if isSignedIn() && canAccessPatient(patientId);
+    }
+
+    // Rules: Notifications Collection
+    match /notifications/{notifId} {
+      allow read, write: if isSignedIn() && (
+        (resource != null && canAccessPatient(resource.data.userId)) ||
+        (request.resource != null && canAccessPatient(request.resource.data.userId))
+      );
+    }
+  }
+}

@@ -83,7 +83,7 @@ export const MedicineFormCard: React.FC<MedicineFormCardProps> = ({ medicine, on
               {medicine.times?.map((t) => (
                 <div key={t} className="bg-slate-800 text-white px-4 py-2 rounded-xl flex items-center gap-3 border border-slate-700 group transition-all hover:bg-rose-500/10 hover:border-rose-500/30">
                   <span className="text-sm font-mono">{t}</span>
-                  <button onClick={() => removeTime(t)} className="text-slate-500 hover:text-rose-400 group-hover:text-rose-400">
+                  <button type="button" onClick={() => removeTime(t)} className="text-slate-500 hover:text-rose-400 group-hover:text-rose-400">
                     <Minus size={14} />
                   </button>
                 </div>
@@ -97,6 +97,7 @@ export const MedicineFormCard: React.FC<MedicineFormCardProps> = ({ medicine, on
                 className="flex-1 bg-slate-900/50 border border-slate-800 rounded-2xl px-6 py-3 text-white outline-none focus:border-emerald-500/50 font-mono"
               />
               <button 
+                type="button"
                 onClick={addTime}
                 className="w-14 h-14 bg-slate-800 hover:bg-slate-700 text-white rounded-2xl flex items-center justify-center transition-all border border-slate-700"
               >
@@ -145,6 +146,7 @@ export const MedicineFormCard: React.FC<MedicineFormCardProps> = ({ medicine, on
             )}
           </div>
           <button 
+            type="button"
             onClick={onRemove}
             className="flex items-center gap-2 text-rose-500/40 hover:text-rose-500 text-[10px] font-bold uppercase tracking-widest transition-colors"
           >

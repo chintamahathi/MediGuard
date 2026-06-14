@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
 import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13,18 +14,16 @@ const firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), "fire
 
 // Initialize Firebase Admin
 // In AI Studio environment, for the default database, we use the firestoreDatabaseId from config
-if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: firebaseConfig.projectId,
-  });
-}
+const appInstance = admin.apps.length
+  ? admin.app()
+  : admin.initializeApp({
+      projectId: firebaseConfig.projectId,
+    });
 
 // Access the specific database
-const db = admin.firestore();
-// Use the specific database ID if it's not "(default)"
 const firestore = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== "(default)"
-  ? (admin as any).firestore(firebaseConfig.firestoreDatabaseId)
-  : db;
+  ? getFirestore(appInstance, firebaseConfig.firestoreDatabaseId)
+  : getFirestore(appInstance);
 
 async function startServer() {
   const app = express();
